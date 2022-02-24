@@ -19,23 +19,39 @@ package memcache
 
 import (
 	"bufio"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"net"
 	"os"
 	"os/exec"
+	// "runtime/debug"
 	"strings"
 	"testing"
 	"time"
 )
 
 const testServer = "localhost:11211"
+const testTLSServer = "localhost:11212"
 
 func setup(t *testing.T) bool {
 	c, err := net.Dial("tcp", testServer)
 	if err != nil {
-		t.Skipf("skipping test; no server running at %s", testServer)
+		t.Skipf("skipping test; error: %s connecting to server running at %s", err.Error(), testServer)
+	}
+	c.Write([]byte("flush_all\r\n"))
+	c.Close()
+	return true
+}
+
+func setupTLS(t *testing.T) bool {
+	config := &tls.Config{
+		InsecureSkipVerify: true,
+	}
+	c, err := tls.Dial("tcp", testTLSServer, config)
+	if err != nil {
+		t.Skipf("skipping test; error: %s connecting to server running at %s", err.Error(), testTLSServer)
 	}
 	c.Write([]byte("flush_all\r\n"))
 	c.Close()
@@ -69,6 +85,16 @@ func TestUnixSocket(t *testing.T) {
 	}
 
 	testWithClient(t, New(sock))
+}
+
+func TestTLS(t *testing.T) {
+	if !setupTLS(t) {
+		return
+	}
+	config := &tls.Config{
+		InsecureSkipVerify: true,
+	}
+	testWithClient(t, NewWithTLS(config, testTLSServer))
 }
 
 func mustSetF(t *testing.T, c *Client) func(*Item) {
@@ -127,7 +153,7 @@ func testWithClient(t *testing.T, c *Client) {
 	if err != ErrMalformedKey {
 		t.Errorf("set(foo bar) should return ErrMalformedKey instead of %v", err)
 	}
-	malFormed = &Item{Key: "foo" + string(0x7f), Value: []byte("foobarval")}
+	malFormed = &Item{Key: "foo" + string(rune(0x7f)), Value: []byte("foobarval")}
 	err = c.Set(malFormed)
 	if err != ErrMalformedKey {
 		t.Errorf("set(foo<0x7f>) should return ErrMalformedKey instead of %v", err)
